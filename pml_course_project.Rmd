@@ -1,0 +1,120 @@
+---
+output:
+  html_document: default
+  pdf_document: default
+---
+Practical Machine Learning - Course Project
+===========================================
+
+###Ravi Prasad K
+###Nov 06 2017
+
+
+###Background
+
+Using devices such as Jawbone Up, Nike FuelBand, and Fitbit it is now possible to collect a large amount of data about personal activity relatively inexpensively. These type of devices are part of the quantified self movement - a group of enthusiasts who take measurements about themselves regularly to improve their health, to find patterns in their behavior, or because they are tech geeks. One thing that people regularly do is quantify how much of a particular activity they do, but they rarely quantify how well they do it. In this project, your goal will be to use data from accelerometers on the belt, forearm, arm, and dumbell of 6 participants. They were asked to perform barbell lifts correctly and incorrectly in 5 different ways. The goal of this project is to predict the manner in which they did the exercise.
+
+
+###Download the training and test data
+
+
+```{r load the data, echo=FALSE, eval = TRUE}
+library("caret")
+if(!file.exists("pml-training.csv")){download.file("https://d396qusza40orc.cloudfront.net/predmachlearn/pml-training.csv", destfile = "pml-training.csv")}
+
+if(!file.exists("pml-testing.csv")){download.file("https://d396qusza40orc.cloudfront.net/predmachlearn/pml-testing.csv", destfile = "pml-testing.csv")}
+#Read the train and test datasets
+train<- read.csv("pml-training.csv", sep=",", header=TRUE, na.strings = c("NA","",'#DIV/0!'))
+test<- read.csv("pml-testing.csv", sep=",", header=TRUE, na.strings = c("NA","",'#DIV/0!'))
+dim(train)
+dim(test)
+```
+
+Our Training dataset has 19622 rows and 160 columns, test has 20 observations and 160 columns, we will remove columns with missing values now
+
+### Drop columns with NULL values
+```{r drop columns with missing values, echo=TRUE, eval=TRUE}
+train <- train[,(colSums(is.na(train)) == 0)]
+dim(train)
+test<- test[,(colSums(is.na(test)) == 0)]
+dim(test)
+```
+
+After dropping columns with missing values, our dataset  now has 60 variables
+
+### Impute the columns with missing values
+
+```{r Imputation for numeric values, echo=TRUE, eval=TRUE}
+library(caret)
+numericalsIdx <- which(lapply(train, class) %in% "numeric")
+
+preprocessModel <-preProcess(train[,numericalsIdx],method=c('knnImpute', 'center', 'scale'))
+pre_train <- predict(preprocessModel, train[,numericalsIdx])
+pre_train$classe <- train$classe
+
+pre_test <-predict(preprocessModel,test[,numericalsIdx])
+```
+
+### Remove Non-Zero variables
+
+```{r Remove Variables with Near Zero Variance , echo=TRUE, eval=TRUE}
+nzv <- nearZeroVar(pre_train,saveMetrics=TRUE)
+pre_train <- pre_train[,nzv$nzv==FALSE]
+dim(pre_train)
+nzv <- nearZeroVar(pre_test,saveMetrics=TRUE)
+pre_test <- pre_test[,nzv$nzv==FALSE]
+dim(pre_test)
+```
+28 Variables remain after this step
+
+###Split the train dataset into train and Validation by Stratified Sampling
+
+```{r StratifiedSample, echo=TRUE}
+set.seed(1234)
+idxTrain<- createDataPartition(pre_train$classe, p=0.7, list=FALSE)
+training<- pre_train[idxTrain, ]
+validation <- pre_train[-idxTrain, ] 
+dim(training) 
+dim(validation)
+```
+
+###Train the Model
+```{r ModelTraining, echo=TRUE}
+library(randomForest)
+modFitrf <- train(classe ~., method="rf", data=training,  allowParallel=TRUE, importance=TRUE )
+modFitrf
+```
+###Variable Importance
+```{r Variable Importance, echo=TRUE}
+varImpPlot(modFitrf$finalModel, sort = TRUE, type = 1, pch = 19, col = 1, cex = 0.6, main = "Importance of the Individual Variables")
+```
+
+This plot shows each of the variables in order from most important to least important.
+
+
+###Cross Validation Testing and Out-of-Sample Error Estimate
+```{r Cross Validation, echo=TRUE}
+predValidRF <- predict(modFitrf, validation)
+confus <- confusionMatrix(validation$classe, predValidRF)
+confus$table
+```
+
+We can see that very few observations are wrongly classified
+
+###Accuracy
+```{r Accuracy, echo=TRUE}
+accur <- postResample(validation$classe, predValidRF)
+modAccuracy <- accur[[1]]
+modAccuracy
+out_of_sample_error <- 1 - modAccuracy
+out_of_sample_error
+```
+
+We can see that out of sample error is only 0.6%
+
+###Apply this model to the 20 test cases
+```{r Apply on test data, echo=TRUE}
+pred_final <- predict(modFitrf, test)
+pred_final
+```
+There are the results for the 20 observations in the Test data
